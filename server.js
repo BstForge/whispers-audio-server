@@ -1,7 +1,6 @@
 // server.js
 import express from "express";
 import axios from "axios";
-import multer from "multer";
 import { writeFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
