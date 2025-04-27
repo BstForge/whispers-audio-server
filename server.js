@@ -1,7 +1,7 @@
 // server.js
 import express from "express";
 import axios from "axios";
-import { writeFile, readdir } from "fs/promises";
+import { writeFile, readdir, mkdir } from "fs/promises";
 import fs from "fs";
 import archiver from "archiver";
 import path from "path";
@@ -24,6 +24,9 @@ app.use(express.json({ limit: "10mb" }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Make sure /files directory exists
+await mkdir(path.join(__dirname, "files"), { recursive: true });
 
 // Serve static files (MP3s and ZIPs)
 app.use("/files", express.static(path.join(__dirname, "files")));
@@ -64,3 +67,57 @@ app.post("/generate", async (req, res) => {
     const fileUrl = `${req.protocol}://${req.get("host")}/files/${filename}.mp3`;
 
     res.json({ url: fileUrl });
+
+  } catch (error) {
+    console.error(error.response?.data || error.message);
+    res.status(500).json({ error: "Error generating audio." });
+  }
+});
+
+// New endpoint: generate a ZIP file for all matching scene files
+app.post("/generate-zip", async (req, res) => {
+  const { prefix } = req.body;
+
+  if (!prefix) {
+    return res.status(400).json({ error: "Missing prefix field." });
+  }
+
+  const filesDir = path.join(__dirname, "files");
+  const outputZipPath = path.join(filesDir, `${prefix}.zip`);
+
+  try {
+    const allFiles = await readdir(filesDir);
+
+    const matchingFiles = allFiles.filter(filename =>
+      filename.startsWith(prefix) && filename.endsWith(".mp3")
+    );
+
+    if (matchingFiles.length === 0) {
+      return res.status(404).json({ error: "No matching MP3 files found." });
+    }
+
+    const output = fs.createWriteStream(outputZipPath);
+    const archive = archiver("zip", { zlib: { level: 9 } });
+
+    archive.pipe(output);
+
+    for (const file of matchingFiles) {
+      const fullPath = path.join(filesDir, file);
+      archive.file(fullPath, { name: file });
+    }
+
+    await archive.finalize();
+
+    const fileUrl = `${req.protocol}://${req.get("host")}/files/${prefix}.zip`;
+
+    res.json({ url: fileUrl });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error creating zip file." });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
